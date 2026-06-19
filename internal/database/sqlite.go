@@ -390,16 +390,17 @@ func (s *SQLite) GetDropColumnSQL(tableName string, columnName string) string {
 }
 
 func (s *SQLite) GetAlterColumnTypeSQL(tableName string, oldCol, newCol model.Column) string {
-	return fmt.Sprintf("ALTER TABLE %s RENAME TO %s_old;\n"+
+	oldTableName := tableName + "_old"
+	return fmt.Sprintf("ALTER TABLE %s RENAME TO %s;\n"+
 		"%s\n"+
-		"INSERT INTO %s SELECT %s FROM %s_old;\n"+
-		"DROP TABLE %s_old;",
-		s.QuoteIdentifier(tableName), s.QuoteIdentifier(tableName),
+		"INSERT INTO %s SELECT %s FROM %s;\n"+
+		"DROP TABLE %s;",
+		s.QuoteIdentifier(tableName), s.QuoteIdentifier(oldTableName),
 		s.recreateTableSQLWithNewColumn(tableName, oldCol, newCol),
 		s.QuoteIdentifier(tableName),
 		s.buildColumnListForRecreate(tableName, oldCol, newCol),
-		s.QuoteIdentifier(tableName),
-		s.QuoteIdentifier(tableName))
+		s.QuoteIdentifier(oldTableName),
+		s.QuoteIdentifier(oldTableName))
 }
 
 func (s *SQLite) recreateTableSQLWithNewColumn(tableName string, oldCol, newCol model.Column) string {
@@ -523,17 +524,18 @@ func (s *SQLite) GetAddForeignKeySQL(tableName string, fk model.ForeignKey) stri
 }
 
 func (s *SQLite) GetDropForeignKeySQL(tableName string, fk model.ForeignKey) string {
+	oldTableName := tableName + "_old"
 	return fmt.Sprintf("-- SQLite requires table recreation to drop foreign key\n"+
 		"-- The following SQL recreates the table without the foreign key %s\n"+
-		"ALTER TABLE %s RENAME TO %s_old;\n"+
-		"CREATE TABLE %s AS SELECT * FROM %s_old WHERE 1=0;\n"+
-		"INSERT INTO %s SELECT * FROM %s_old;\n"+
-		"DROP TABLE %s_old;",
+		"ALTER TABLE %s RENAME TO %s;\n"+
+		"CREATE TABLE %s AS SELECT * FROM %s WHERE 1=0;\n"+
+		"INSERT INTO %s SELECT * FROM %s;\n"+
+		"DROP TABLE %s;",
 		fk.Name,
-		s.QuoteIdentifier(tableName), s.QuoteIdentifier(tableName),
-		s.QuoteIdentifier(tableName), s.QuoteIdentifier(tableName),
-		s.QuoteIdentifier(tableName), s.QuoteIdentifier(tableName),
-		s.QuoteIdentifier(tableName))
+		s.QuoteIdentifier(tableName), s.QuoteIdentifier(oldTableName),
+		s.QuoteIdentifier(tableName), s.QuoteIdentifier(oldTableName),
+		s.QuoteIdentifier(tableName), s.QuoteIdentifier(oldTableName),
+		s.QuoteIdentifier(oldTableName))
 }
 
 func (s *SQLite) GetAddUniqueConstraintSQL(tableName string, uc model.UniqueConstraint) string {
@@ -554,27 +556,29 @@ func (s *SQLite) GetDropUniqueConstraintSQL(tableName string, uc model.UniqueCon
 }
 
 func (s *SQLite) GetAddCheckConstraintSQL(tableName string, cc model.CheckConstraint) string {
+	oldTableName := tableName + "_old"
 	return fmt.Sprintf("-- SQLite requires table recreation to add check constraints\n"+
-		"ALTER TABLE %s RENAME TO %s_old;\n"+
+		"ALTER TABLE %s RENAME TO %s;\n"+
 		"CREATE TABLE %s (\n  -- original columns plus new check constraint\n  CHECK (%s)\n);\n"+
-		"INSERT INTO %s SELECT * FROM %s_old;\n"+
-		"DROP TABLE %s_old;",
-		s.QuoteIdentifier(tableName), s.QuoteIdentifier(tableName),
+		"INSERT INTO %s SELECT * FROM %s;\n"+
+		"DROP TABLE %s;",
+		s.QuoteIdentifier(tableName), s.QuoteIdentifier(oldTableName),
 		s.QuoteIdentifier(tableName), cc.Expression,
-		s.QuoteIdentifier(tableName), s.QuoteIdentifier(tableName),
-		s.QuoteIdentifier(tableName))
+		s.QuoteIdentifier(tableName), s.QuoteIdentifier(oldTableName),
+		s.QuoteIdentifier(oldTableName))
 }
 
 func (s *SQLite) GetDropCheckConstraintSQL(tableName string, cc model.CheckConstraint) string {
+	oldTableName := tableName + "_old"
 	return fmt.Sprintf("-- SQLite requires table recreation to drop check constraints\n"+
-		"ALTER TABLE %s RENAME TO %s_old;\n"+
-		"CREATE TABLE %s AS SELECT * FROM %s_old WHERE 1=0;\n"+
-		"INSERT INTO %s SELECT * FROM %s_old;\n"+
-		"DROP TABLE %s_old;",
-		s.QuoteIdentifier(tableName), s.QuoteIdentifier(tableName),
-		s.QuoteIdentifier(tableName), s.QuoteIdentifier(tableName),
-		s.QuoteIdentifier(tableName), s.QuoteIdentifier(tableName),
-		s.QuoteIdentifier(tableName))
+		"ALTER TABLE %s RENAME TO %s;\n"+
+		"CREATE TABLE %s AS SELECT * FROM %s WHERE 1=0;\n"+
+		"INSERT INTO %s SELECT * FROM %s;\n"+
+		"DROP TABLE %s;",
+		s.QuoteIdentifier(tableName), s.QuoteIdentifier(oldTableName),
+		s.QuoteIdentifier(tableName), s.QuoteIdentifier(oldTableName),
+		s.QuoteIdentifier(tableName), s.QuoteIdentifier(oldTableName),
+		s.QuoteIdentifier(oldTableName))
 }
 
 func (s *SQLite) GetDropTableSQL(tableName string) string {
