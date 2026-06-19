@@ -14,7 +14,24 @@ import (
 
 type SQLite struct {
 	BaseDatabase
-	hasLock bool
+	hasLock       bool
+	offlineSchema *model.Schema
+}
+
+func (s *SQLite) SetOfflineSchema(schema *model.Schema) {
+	s.offlineSchema = schema
+}
+
+func (s *SQLite) getOfflineTable(tableName string) *model.Table {
+	if s.offlineSchema == nil {
+		return nil
+	}
+	for i := range s.offlineSchema.Tables {
+		if s.offlineSchema.Tables[i].Name == tableName {
+			return &s.offlineSchema.Tables[i]
+		}
+	}
+	return nil
 }
 
 func (s *SQLite) Connect(ctx context.Context, dsn string) error {
@@ -387,28 +404,42 @@ func (s *SQLite) GetAlterColumnTypeSQL(tableName string, oldCol, newCol model.Co
 
 func (s *SQLite) recreateTableSQLWithNewColumn(tableName string, oldCol, newCol model.Column) string {
 	var newColumns []model.Column
-	query := fmt.Sprintf(`PRAGMA table_info(%s)`, s.QuoteIdentifier(tableName))
-	rows, _ := s.Query(context.Background(), query)
-	if rows != nil {
-		defer rows.Close()
-		for rows.Next() {
-			var col model.Column
-			var cid int
-			var notNull int
-			var defaultValue sql.NullString
-			var pk int
-			var colType string
-			rows.Scan(&cid, &col.Name, &colType, &notNull, &defaultValue, &pk)
-			if col.Name == oldCol.Name {
-				newColumns = append(newColumns, newCol)
-			} else {
-				col.Type = colType
-				col.Nullable = notNull == 0
-				col.IsPrimaryKey = pk == 1
-				if defaultValue.Valid && defaultValue.String != "" {
-					col.DefaultValue = &defaultValue.String
+
+	if s.DB() == nil {
+		table := s.getOfflineTable(tableName)
+		if table != nil {
+			for _, col := range table.Columns {
+				if col.Name == oldCol.Name {
+					newColumns = append(newColumns, newCol)
+				} else {
+					newColumns = append(newColumns, col)
 				}
-				newColumns = append(newColumns, col)
+			}
+		}
+	} else {
+		query := fmt.Sprintf(`PRAGMA table_info(%s)`, s.QuoteIdentifier(tableName))
+		rows, _ := s.Query(context.Background(), query)
+		if rows != nil {
+			defer rows.Close()
+			for rows.Next() {
+				var col model.Column
+				var cid int
+				var notNull int
+				var defaultValue sql.NullString
+				var pk int
+				var colType string
+				rows.Scan(&cid, &col.Name, &colType, &notNull, &defaultValue, &pk)
+				if col.Name == oldCol.Name {
+					newColumns = append(newColumns, newCol)
+				} else {
+					col.Type = colType
+					col.Nullable = notNull == 0
+					col.IsPrimaryKey = pk == 1
+					if defaultValue.Valid && defaultValue.String != "" {
+						col.DefaultValue = &defaultValue.String
+					}
+					newColumns = append(newColumns, col)
+				}
 			}
 		}
 	}
@@ -425,6 +456,18 @@ func (s *SQLite) recreateTableSQLWithNewColumn(tableName string, oldCol, newCol 
 }
 
 func (s *SQLite) buildColumnListForRecreate(tableName string, oldCol, newCol model.Column) string {
+	if s.DB() == nil {
+		table := s.getOfflineTable(tableName)
+		if table != nil {
+			var cols []string
+			for _, col := range table.Columns {
+				cols = append(cols, s.QuoteIdentifier(col.Name))
+			}
+			return strings.Join(cols, ", ")
+		}
+		return s.QuoteIdentifier(newCol.Name)
+	}
+
 	query := fmt.Sprintf(`PRAGMA table_info(%s)`, s.QuoteIdentifier(tableName))
 	rows, _ := s.Query(context.Background(), query)
 	var cols []string

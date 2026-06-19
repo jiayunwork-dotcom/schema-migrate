@@ -409,6 +409,10 @@ instead of connecting to a database to determine the current schema.`,
 					return err
 				}
 
+				if sqliteDB, ok := db.(*database.SQLite); ok {
+					sqliteDB.SetOfflineSchema(currentSchema)
+				}
+
 				gen = generator.NewGenerator(db, cfg.Migrations.Dir)
 
 				if len(currentSchema.Tables) == 0 {
