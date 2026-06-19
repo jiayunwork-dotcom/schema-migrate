@@ -146,7 +146,10 @@ func (s *SQLite) loadTableColumns(ctx context.Context, table *model.Table) error
 			return err
 		}
 		col.Nullable = notNull == 0
-		col.IsPrimaryKey = pk == 1
+		col.IsPrimaryKey = pk > 0
+		if col.IsPrimaryKey {
+			col.Nullable = false
+		}
 		if defaultValue.Valid && defaultValue.String != "" && defaultValue.String != "NULL" {
 			col.DefaultValue = &defaultValue.String
 		}

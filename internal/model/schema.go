@@ -11,54 +11,54 @@ const (
 )
 
 type Column struct {
-	Name         string
-	Type         string
-	Nullable     bool
-	DefaultValue *string
-	IsPrimaryKey bool
-	IsUnique     bool
-	AutoIncrement bool
-	Comment      string
+	Name         string  `yaml:"name"`
+	Type         string  `yaml:"type"`
+	Nullable     bool    `yaml:"nullable"`
+	DefaultValue *string `yaml:"default_value"`
+	IsPrimaryKey bool    `yaml:"is_primary_key"`
+	IsUnique     bool    `yaml:"is_unique"`
+	AutoIncrement bool   `yaml:"autoincrement"`
+	Comment      string  `yaml:"comment"`
 }
 
 type Index struct {
-	Name    string
-	Columns []string
-	Unique  bool
-	Type    string
+	Name    string   `yaml:"name"`
+	Columns []string `yaml:"columns"`
+	Unique  bool     `yaml:"unique"`
+	Type    string   `yaml:"type"`
 }
 
 type ForeignKey struct {
-	Name       string
-	Columns    []string
-	RefTable   string
-	RefColumns []string
-	OnDelete   string
-	OnUpdate   string
+	Name       string   `yaml:"name"`
+	Columns    []string `yaml:"columns"`
+	RefTable   string   `yaml:"ref_table"`
+	RefColumns []string `yaml:"ref_columns"`
+	OnDelete   string   `yaml:"on_delete"`
+	OnUpdate   string   `yaml:"on_update"`
 }
 
 type CheckConstraint struct {
-	Name       string
-	Expression string
+	Name       string `yaml:"name"`
+	Expression string `yaml:"expression"`
 }
 
 type UniqueConstraint struct {
-	Name    string
-	Columns []string
+	Name    string   `yaml:"name"`
+	Columns []string `yaml:"columns"`
 }
 
 type Table struct {
-	Name              string
-	Columns           []Column
-	Indexes           []Index
-	ForeignKeys       []ForeignKey
-	CheckConstraints  []CheckConstraint
-	UniqueConstraints []UniqueConstraint
-	Comment           string
+	Name              string             `yaml:"name"`
+	Columns           []Column           `yaml:"columns"`
+	Indexes           []Index            `yaml:"indexes"`
+	ForeignKeys       []ForeignKey       `yaml:"foreign_keys"`
+	CheckConstraints  []CheckConstraint  `yaml:"check_constraints"`
+	UniqueConstraints []UniqueConstraint `yaml:"unique_constraints"`
+	Comment           string             `yaml:"comment"`
 }
 
 type Schema struct {
-	Tables []Table
+	Tables []Table `yaml:"tables"`
 }
 
 type Migration struct {
