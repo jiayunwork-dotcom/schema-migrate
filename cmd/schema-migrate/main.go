@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,6 +21,7 @@ import (
 	"github.com/schema-migrate/schema-migrate/internal/output"
 	"github.com/schema-migrate/schema-migrate/internal/security"
 	"github.com/schema-migrate/schema-migrate/internal/seed"
+	"github.com/schema-migrate/schema-migrate/internal/sqlparser"
 )
 
 var (
@@ -368,12 +370,16 @@ func generateCmd() *cobra.Command {
 	var migrationName string
 	var dryRun bool
 	var split bool
+	var fromMigrations bool
 
 	cmd := &cobra.Command{
 		Use:   "generate",
 		Short: "Generate migration files from schema diff",
 		Long: `Compare current database schema with target schema and auto-generate
-migration files (up and down SQL) based on the differences.`,
+migration files (up and down SQL) based on the differences.
+
+Use --from-migrations to run in offline mode, parsing existing migration files
+instead of connecting to a database to determine the current schema.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			formatter := output.NewFormatter(jsonOutput)
@@ -383,47 +389,73 @@ migration files (up and down SQL) based on the differences.`,
 				return err
 			}
 
-			db, err := database.New(config.GetDBType(cfg))
+			var currentSchema *model.Schema
+			var gen *generator.Generator
+			var db database.Database
+
+			db, err = database.New(config.GetDBType(cfg))
 			if err != nil {
 				formatter.PrintError("Failed to initialize database", err)
 				return err
 			}
-			defer db.Close()
 
-			if err := db.Connect(ctx, config.GetDSN(cfg)); err != nil {
-				formatter.PrintError("Failed to connect to database", err)
-				return err
-			}
+			if fromMigrations {
+				formatter.PrintInfo("Using offline mode: parsing migration files to determine current schema")
 
-			if err := db.EnsureMigrationsTable(ctx); err != nil {
-				formatter.PrintError("Failed to ensure migrations table", err)
-				return err
-			}
-
-			gen := generator.NewGenerator(db, cfg.Migrations.Dir)
-
-			hasPending, pendingMigrations, err := gen.CheckPendingMigrations(ctx)
-			if err != nil {
-				formatter.PrintWarning(fmt.Sprintf("Warning: Could not check pending migrations: %v", err))
-			} else if hasPending {
-				formatter.PrintWarning(fmt.Sprintf("Found %d pending migration(s):", len(pendingMigrations)))
-				for _, mig := range pendingMigrations {
-					fmt.Printf("  - %s_%s\n", mig.Version, mig.Name)
+				rebuilder := sqlparser.NewSchemaRebuilder(cfg.Migrations.Dir)
+				currentSchema, err = rebuilder.RebuildSchema()
+				if err != nil {
+					formatter.PrintError("Failed to rebuild schema from migrations", err)
+					return err
 				}
-				formatter.PrintWarning("Applying these first is recommended before generating new migrations to avoid timestamp ordering issues.")
-			}
 
-			differ := diff.NewDiffer(db)
-			currentSchema, err := db.GetCurrentSchema(ctx)
-			if err != nil {
-				formatter.PrintError("Failed to get current schema", err)
-				return err
+				gen = generator.NewGenerator(db, cfg.Migrations.Dir)
+
+				if len(currentSchema.Tables) == 0 {
+					formatter.PrintInfo("No existing migrations found - starting with empty schema")
+				} else {
+					formatter.PrintInfo(fmt.Sprintf("Parsed %d migration(s), reconstructed schema with %d table(s)",
+						countMigrationFiles(cfg.Migrations.Dir), len(currentSchema.Tables)))
+				}
+			} else {
+				defer db.Close()
+
+				if err := db.Connect(ctx, config.GetDSN(cfg)); err != nil {
+					formatter.PrintError("Failed to connect to database", err)
+					return err
+				}
+
+				if err := db.EnsureMigrationsTable(ctx); err != nil {
+					formatter.PrintError("Failed to ensure migrations table", err)
+					return err
+				}
+
+				gen = generator.NewGenerator(db, cfg.Migrations.Dir)
+
+				hasPending, pendingMigrations, err := gen.CheckPendingMigrations(ctx)
+				if err != nil {
+					formatter.PrintWarning(fmt.Sprintf("Warning: Could not check pending migrations: %v", err))
+				} else if hasPending {
+					formatter.PrintWarning(fmt.Sprintf("Found %d pending migration(s):", len(pendingMigrations)))
+					for _, mig := range pendingMigrations {
+						fmt.Printf("  - %s_%s\n", mig.Version, mig.Name)
+					}
+					formatter.PrintWarning("Applying these first is recommended before generating new migrations to avoid timestamp ordering issues.")
+				}
+
+				currentSchema, err = db.GetCurrentSchema(ctx)
+				if err != nil {
+					formatter.PrintError("Failed to get current schema", err)
+					return err
+				}
 			}
 
 			schemaPath := cfg.Schema.FilePath
 			if targetFile != "" {
 				schemaPath = targetFile
 			}
+
+			differ := diff.NewDiffer(db)
 
 			targetSchema, err := differ.LoadTargetSchema(schemaPath)
 			if err != nil {
@@ -512,8 +544,30 @@ migration files (up and down SQL) based on the differences.`,
 	cmd.Flags().StringVar(&migrationName, "name", "auto_generated", "Custom migration name")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Only output SQL without creating files")
 	cmd.Flags().BoolVar(&split, "split", false, "Split changes into per-table migration files")
+	cmd.Flags().BoolVar(&fromMigrations, "from-migrations", false, "Offline mode: parse migration files instead of connecting to database")
 
 	return cmd
+}
+
+func countMigrationFiles(dir string) int {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return 0
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	migrationFileRegex := regexp.MustCompile(`^(\d{14})_(.+)\.up\.sql$`)
+	count := 0
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		if migrationFileRegex.MatchString(file.Name()) {
+			count++
+		}
+	}
+	return count
 }
 
 func initCmd() *cobra.Command {
