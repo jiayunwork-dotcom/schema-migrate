@@ -1,0 +1,17 @@
+database:
+  type: mysql
+  host: ${DB_HOST:-localhost}
+  port: 3306
+  user: ${DB_USER:-root}
+  password: ${DB_PASSWORD:-password}
+  dbname: ${DB_NAME:-app_development}
+
+migrations:
+  dir: ./migrations
+
+schema:
+  file: ./schemas/schema.yaml
+
+concurrency:
+  lock_timeout_seconds: 300
+  retry_interval_ms: 1000

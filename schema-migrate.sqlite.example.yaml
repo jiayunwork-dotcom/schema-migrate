@@ -1,0 +1,13 @@
+database:
+  type: sqlite
+  dbname: ./app.db
+
+migrations:
+  dir: ./migrations
+
+schema:
+  file: ./schemas/schema.yaml
+
+concurrency:
+  lock_timeout_seconds: 300
+  retry_interval_ms: 1000

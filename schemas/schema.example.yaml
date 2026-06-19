@@ -1,0 +1,182 @@
+tables:
+  - name: users
+    comment: "用户表"
+    columns:
+      - name: id
+        type: bigint
+        nullable: false
+        autoincrement: true
+        is_primary_key: true
+        comment: "用户ID"
+      - name: username
+        type: varchar(50)
+        nullable: false
+        comment: "用户名"
+      - name: email
+        type: varchar(255)
+        nullable: false
+        comment: "邮箱"
+      - name: password_hash
+        type: varchar(255)
+        nullable: false
+        comment: "密码哈希"
+      - name: display_name
+        type: varchar(100)
+        nullable: true
+        comment: "显示名称"
+      - name: avatar_url
+        type: varchar(500)
+        nullable: true
+        comment: "头像URL"
+      - name: is_active
+        type: boolean
+        nullable: false
+        default_value: "true"
+        comment: "是否激活"
+      - name: created_at
+        type: timestamp
+        nullable: false
+        default_value: "NOW()"
+        comment: "创建时间"
+      - name: updated_at
+        type: timestamp
+        nullable: false
+        default_value: "NOW()"
+        comment: "更新时间"
+    indexes:
+      - name: idx_users_username
+        columns: [username]
+        unique: true
+        type: btree
+      - name: idx_users_email
+        columns: [email]
+        unique: true
+        type: btree
+      - name: idx_users_created_at
+        columns: [created_at]
+        unique: false
+        type: btree
+    unique_constraints:
+      - name: users_username_key
+        columns: [username]
+
+  - name: roles
+    comment: "角色表"
+    columns:
+      - name: id
+        type: bigint
+        nullable: false
+        autoincrement: true
+        is_primary_key: true
+      - name: name
+        type: varchar(50)
+        nullable: false
+      - name: description
+        type: text
+        nullable: true
+      - name: created_at
+        type: timestamp
+        nullable: false
+        default_value: "NOW()"
+    indexes:
+      - name: idx_roles_name
+        columns: [name]
+        unique: true
+
+  - name: user_roles
+    comment: "用户角色关联表"
+    columns:
+      - name: id
+        type: bigint
+        nullable: false
+        autoincrement: true
+        is_primary_key: true
+      - name: user_id
+        type: bigint
+        nullable: false
+      - name: role_id
+        type: bigint
+        nullable: false
+      - name: created_at
+        type: timestamp
+        nullable: false
+        default_value: "NOW()"
+    indexes:
+      - name: idx_user_roles_user_role
+        columns: [user_id, role_id]
+        unique: true
+      - name: idx_user_roles_user_id
+        columns: [user_id]
+      - name: idx_user_roles_role_id
+        columns: [role_id]
+    foreign_keys:
+      - name: fk_user_roles_user
+        columns: [user_id]
+        ref_table: users
+        ref_columns: [id]
+        on_delete: CASCADE
+        on_update: CASCADE
+      - name: fk_user_roles_role
+        columns: [role_id]
+        ref_table: roles
+        ref_columns: [id]
+        on_delete: CASCADE
+        on_update: CASCADE
+
+  - name: posts
+    comment: "文章表"
+    columns:
+      - name: id
+        type: bigint
+        nullable: false
+        autoincrement: true
+        is_primary_key: true
+      - name: title
+        type: varchar(255)
+        nullable: false
+      - name: slug
+        type: varchar(255)
+        nullable: false
+      - name: content
+        type: text
+        nullable: false
+      - name: excerpt
+        type: varchar(500)
+        nullable: true
+      - name: status
+        type: varchar(20)
+        nullable: false
+        default_value: "'draft'"
+      - name: author_id
+        type: bigint
+        nullable: false
+      - name: published_at
+        type: timestamp
+        nullable: true
+      - name: created_at
+        type: timestamp
+        nullable: false
+        default_value: "NOW()"
+      - name: updated_at
+        type: timestamp
+        nullable: false
+        default_value: "NOW()"
+    indexes:
+      - name: idx_posts_slug
+        columns: [slug]
+        unique: true
+      - name: idx_posts_author_id
+        columns: [author_id]
+      - name: idx_posts_status
+        columns: [status]
+      - name: idx_posts_created_at
+        columns: [created_at]
+    foreign_keys:
+      - name: fk_posts_author
+        columns: [author_id]
+        ref_table: users
+        ref_columns: [id]
+        on_delete: CASCADE
+    check_constraints:
+      - name: posts_status_check
+        expression: "status IN ('draft', 'published', 'archived')"

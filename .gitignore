@@ -28,6 +28,8 @@ venv/
 
 # Go
 /vendor/
+/bin/
+/schema-migrate
 
 # Rust
 /target/
