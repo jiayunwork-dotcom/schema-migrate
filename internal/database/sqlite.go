@@ -54,10 +54,28 @@ func (s *SQLite) GetAppliedMigrations(ctx context.Context) ([]model.MigrationRec
 		if err := rows.Scan(&r.Version, &r.Name, &r.Checksum, &appliedAtStr, &r.ExecutionTime); err != nil {
 			return nil, err
 		}
-		r.AppliedAt, _ = time.Parse("2006-01-02 15:04:05", appliedAtStr)
+		r.AppliedAt = parseSQLiteTime(appliedAtStr)
 		records = append(records, r)
 	}
 	return records, rows.Err()
+}
+
+func parseSQLiteTime(s string) time.Time {
+	formats := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05",
+		time.RFC3339,
+	}
+	for _, f := range formats {
+		if t, err := time.ParseInLocation(f, s, time.Local); err == nil {
+			return t
+		}
+		if t, err := time.Parse(f, s); err == nil {
+			return t
+		}
+	}
+	return time.Now()
 }
 
 func (s *SQLite) RecordMigration(ctx context.Context, version, name, checksum string, executionTimeMs int64) error {

@@ -162,6 +162,29 @@ func (e *Executor) Up(ctx context.Context, dryRun bool, force bool, step int) er
 
 	e.formatter.PrintInfo(fmt.Sprintf("Applying %d pending migration(s)...", len(ordered)))
 
+	for i, mig := range ordered {
+		checkResult, err := e.security.CheckSQL(ctx, mig.UpSQL)
+		if err != nil {
+			return fmt.Errorf("security check failed for %s: %w", mig.Version, err)
+		}
+
+		if checkResult.IsDangerous {
+			e.formatter.PrintSecurityCheck(checkResult)
+			if !force && !dryRun {
+				fmt.Print("Do you want to continue? (y/N): ")
+				reader := bufio.NewReader(os.Stdin)
+				response, _ := reader.ReadString('\n')
+				response = strings.TrimSpace(strings.ToLower(response))
+				if response != "y" && response != "yes" {
+					return fmt.Errorf("aborted by user due to dangerous operations")
+				}
+			} else if dryRun {
+				e.formatter.PrintWarning("Dangerous operations detected in dry-run mode. Review the SQL carefully before executing.")
+			}
+		}
+		_ = i
+	}
+
 	if dryRun {
 		var allSQL strings.Builder
 		for _, mig := range ordered {
@@ -174,28 +197,10 @@ func (e *Executor) Up(ctx context.Context, dryRun bool, force bool, step int) er
 	}
 
 	for i, mig := range ordered {
-		checkResult, err := e.security.CheckSQL(ctx, mig.UpSQL)
-		if err != nil {
-			return fmt.Errorf("security check failed for %s: %w", mig.Version, err)
-		}
-
-		if checkResult.IsDangerous {
-			e.formatter.PrintSecurityCheck(checkResult)
-			if !force {
-				fmt.Print("Do you want to continue? (y/N): ")
-				reader := bufio.NewReader(os.Stdin)
-				response, _ := reader.ReadString('\n')
-				response = strings.TrimSpace(strings.ToLower(response))
-				if response != "y" && response != "yes" {
-					return fmt.Errorf("aborted by user due to dangerous operations")
-				}
-			}
-		}
-
 		start := time.Now()
 		e.formatter.PrintInfo(fmt.Sprintf("[%d/%d] Applying %s_%s...", i+1, len(ordered), mig.Version, mig.Name))
 
-		_, err = e.db.Exec(ctx, mig.UpSQL)
+		_, err := e.db.Exec(ctx, mig.UpSQL)
 		duration := time.Since(start)
 		if err != nil {
 			e.formatter.PrintExecutionResult(mig, "up", duration, err)
@@ -260,6 +265,19 @@ func (e *Executor) Down(ctx context.Context, dryRun bool, force bool, step int) 
 	}
 
 	e.formatter.PrintWarning(fmt.Sprintf("This will rollback %d migration(s)!", len(toRollback)))
+
+	for _, mig := range toRollback {
+		checkResult, err := e.security.CheckSQL(ctx, mig.DownSQL)
+		if err != nil {
+			return fmt.Errorf("security check failed for %s: %w", mig.Version, err)
+		}
+		if checkResult.IsDangerous {
+			e.formatter.PrintSecurityCheck(checkResult)
+			if dryRun {
+				e.formatter.PrintWarning("Dangerous operations detected in dry-run mode. Review the SQL carefully before executing.")
+			}
+		}
+	}
 
 	if dryRun {
 		var allSQL strings.Builder

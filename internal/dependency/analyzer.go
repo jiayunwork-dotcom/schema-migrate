@@ -3,6 +3,7 @@ package dependency
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/schema-migrate/schema-migrate/internal/model"
@@ -112,8 +113,10 @@ func (a *Analyzer) topologicalSort(nodes []model.DependencyNode) ([]model.Depend
 			queue = append(queue, version)
 		}
 	}
+	sort.Strings(queue)
 
 	for len(queue) > 0 {
+		sort.Strings(queue)
 		version := queue[0]
 		queue = queue[1:]
 
@@ -122,16 +125,19 @@ func (a *Analyzer) topologicalSort(nodes []model.DependencyNode) ([]model.Depend
 			result = append(result, *node)
 		}
 
+		var newlyReady []string
 		for _, n := range nodes {
 			for _, dep := range n.DependsOn {
 				if dep == version {
 					inDegree[n.Version]--
 					if inDegree[n.Version] == 0 {
-						queue = append(queue, n.Version)
+						newlyReady = append(newlyReady, n.Version)
 					}
 				}
 			}
 		}
+		sort.Strings(newlyReady)
+		queue = append(queue, newlyReady...)
 	}
 
 	if len(result) != len(nodes) {

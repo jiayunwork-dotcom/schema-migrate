@@ -1,0 +1,22 @@
+tables:
+  - name: users
+    columns:
+      - name: id
+        type: bigint
+        nullable: false
+        autoincrement: true
+        is_primary_key: true
+      - name: name
+        type: varchar(255)
+        nullable: false
+      - name: email
+        type: varchar(255)
+        nullable: false
+      - name: created_at
+        type: timestamp
+        nullable: false
+        default_value: NOW()
+    indexes:
+      - name: idx_users_email
+        columns: [email]
+        unique: true
