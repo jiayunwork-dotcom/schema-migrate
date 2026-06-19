@@ -14,6 +14,7 @@ import (
 	"github.com/schema-migrate/schema-migrate/internal/config"
 	"github.com/schema-migrate/schema-migrate/internal/database"
 	"github.com/schema-migrate/schema-migrate/internal/diff"
+	"github.com/schema-migrate/schema-migrate/internal/generator"
 	"github.com/schema-migrate/schema-migrate/internal/migration"
 	"github.com/schema-migrate/schema-migrate/internal/model"
 	"github.com/schema-migrate/schema-migrate/internal/output"
@@ -74,6 +75,7 @@ tracking, schema diffing, safety checks, and dependency analysis.`,
 	rootCmd.AddCommand(downCmd())
 	rootCmd.AddCommand(redoCmd())
 	rootCmd.AddCommand(diffCmd())
+	rootCmd.AddCommand(generateCmd())
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(seedCmd())
 
@@ -357,6 +359,159 @@ func diffCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&apply, "apply", false, "Apply the generated changes")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show SQL without executing (with --apply)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force apply despite dangerous operations")
+
+	return cmd
+}
+
+func generateCmd() *cobra.Command {
+	var targetFile string
+	var migrationName string
+	var dryRun bool
+	var split bool
+
+	cmd := &cobra.Command{
+		Use:   "generate",
+		Short: "Generate migration files from schema diff",
+		Long: `Compare current database schema with target schema and auto-generate
+migration files (up and down SQL) based on the differences.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			formatter := output.NewFormatter(jsonOutput)
+			cfg, err := loadConfig()
+			if err != nil {
+				formatter.PrintError("Failed to load config", err)
+				return err
+			}
+
+			db, err := database.New(config.GetDBType(cfg))
+			if err != nil {
+				formatter.PrintError("Failed to initialize database", err)
+				return err
+			}
+			defer db.Close()
+
+			if err := db.Connect(ctx, config.GetDSN(cfg)); err != nil {
+				formatter.PrintError("Failed to connect to database", err)
+				return err
+			}
+
+			if err := db.EnsureMigrationsTable(ctx); err != nil {
+				formatter.PrintError("Failed to ensure migrations table", err)
+				return err
+			}
+
+			gen := generator.NewGenerator(db, cfg.Migrations.Dir)
+
+			hasPending, pendingMigrations, err := gen.CheckPendingMigrations(ctx)
+			if err != nil {
+				formatter.PrintWarning(fmt.Sprintf("Warning: Could not check pending migrations: %v", err))
+			} else if hasPending {
+				formatter.PrintWarning(fmt.Sprintf("Found %d pending migration(s):", len(pendingMigrations)))
+				for _, mig := range pendingMigrations {
+					fmt.Printf("  - %s_%s\n", mig.Version, mig.Name)
+				}
+				formatter.PrintWarning("Applying these first is recommended before generating new migrations to avoid timestamp ordering issues.")
+			}
+
+			differ := diff.NewDiffer(db)
+			currentSchema, err := db.GetCurrentSchema(ctx)
+			if err != nil {
+				formatter.PrintError("Failed to get current schema", err)
+				return err
+			}
+
+			schemaPath := cfg.Schema.FilePath
+			if targetFile != "" {
+				schemaPath = targetFile
+			}
+
+			targetSchema, err := differ.LoadTargetSchema(schemaPath)
+			if err != nil {
+				formatter.PrintError("Failed to load target schema", err)
+				return err
+			}
+
+			if migrationName == "" {
+				migrationName = "auto_generated"
+			}
+
+			if split {
+				tableMigrations, err := gen.GenerateSplit(currentSchema, targetSchema, migrationName)
+				if err != nil {
+					formatter.PrintError("Failed to generate migrations", err)
+					return err
+				}
+
+				if len(tableMigrations) == 0 {
+					formatter.PrintSuccess("No schema differences found - nothing to generate")
+					return nil
+				}
+
+				if dryRun {
+					fmt.Println()
+					formatter.PrintInfo(fmt.Sprintf("Would generate %d migration(s) (split mode):", len(tableMigrations)))
+					for i, tm := range tableMigrations {
+						fmt.Printf("\n--- Migration %d: %s ---\n", i+1, tm.TableName)
+						fmt.Println("\nUP:")
+						fmt.Println(tm.UpSQL)
+						fmt.Println("\nDOWN:")
+						fmt.Println(tm.DownSQL)
+					}
+					return nil
+				}
+
+				migrations, err := gen.WriteSplitMigrations(migrationName, tableMigrations)
+				if err != nil {
+					formatter.PrintError("Failed to write migration files", err)
+					return err
+				}
+
+				formatter.PrintSuccess(fmt.Sprintf("Successfully generated %d migration(s):", len(migrations)))
+				for _, mig := range migrations {
+					fmt.Printf("  Up:   %s\n", mig.UpPath)
+					fmt.Printf("  Down: %s\n", mig.DownPath)
+				}
+			} else {
+				upSQL, downSQL, err := gen.Generate(currentSchema, targetSchema, migrationName)
+				if err != nil {
+					formatter.PrintError("Failed to generate migrations", err)
+					return err
+				}
+
+				if upSQL == "" && downSQL == "" {
+					formatter.PrintSuccess("No schema differences found - nothing to generate")
+					return nil
+				}
+
+				if dryRun {
+					fmt.Println()
+					formatter.PrintInfo("Generated migration (dry run):")
+					fmt.Println("\n--- UP SQL ---")
+					fmt.Println(upSQL)
+					fmt.Println("\n--- DOWN SQL ---")
+					fmt.Println(downSQL)
+					return nil
+				}
+
+				mig, err := gen.WriteMigration(migrationName, upSQL, downSQL)
+				if err != nil {
+					formatter.PrintError("Failed to write migration files", err)
+					return err
+				}
+
+				formatter.PrintSuccess(fmt.Sprintf("Generated migration %s_%s", mig.Version, mig.Name))
+				fmt.Printf("  Up:   %s\n", mig.UpPath)
+				fmt.Printf("  Down: %s\n", mig.DownPath)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&targetFile, "target", "", "Target schema YAML file path (overrides schema.file config)")
+	cmd.Flags().StringVar(&migrationName, "name", "auto_generated", "Custom migration name")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Only output SQL without creating files")
+	cmd.Flags().BoolVar(&split, "split", false, "Split changes into per-table migration files")
 
 	return cmd
 }
