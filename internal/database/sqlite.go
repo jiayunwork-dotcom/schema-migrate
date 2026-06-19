@@ -546,3 +546,66 @@ func (s *SQLite) isTypeNarrowing(oldType, newType string) bool {
 	}
 	return false
 }
+
+func (s *SQLite) EnsureSeedsTable(ctx context.Context) error {
+	createTableSQL := `
+		CREATE TABLE IF NOT EXISTS schema_seeds (
+			version TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			checksum TEXT NOT NULL,
+			applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			environment TEXT NOT NULL DEFAULT '',
+			tables TEXT NOT NULL DEFAULT ''
+		);
+		CREATE INDEX IF NOT EXISTS idx_schema_seeds_applied_at ON schema_seeds(applied_at);
+		CREATE INDEX IF NOT EXISTS idx_schema_seeds_environment ON schema_seeds(environment);
+	`
+	_, err := s.Exec(ctx, createTableSQL)
+	return err
+}
+
+func (s *SQLite) GetAppliedSeeds(ctx context.Context) ([]model.SeedRecord, error) {
+	query := `SELECT version, name, checksum, applied_at, environment, tables FROM schema_seeds ORDER BY version ASC`
+	rows, err := s.Query(ctx, query)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table") {
+			return []model.SeedRecord{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []model.SeedRecord
+	for rows.Next() {
+		var r model.SeedRecord
+		var appliedAtStr string
+		if err := rows.Scan(&r.Version, &r.Name, &r.Checksum, &appliedAtStr, &r.Environment, &r.Tables); err != nil {
+			return nil, err
+		}
+		r.AppliedAt = parseSQLiteTime(appliedAtStr)
+		records = append(records, r)
+	}
+	return records, rows.Err()
+}
+
+func (s *SQLite) RecordSeed(ctx context.Context, version, name, checksum, environment, tables string) error {
+	query := `INSERT INTO schema_seeds (version, name, checksum, applied_at, environment, tables) VALUES (?, ?, ?, datetime('now'), ?, ?)`
+	_, err := s.Exec(ctx, query, version, name, checksum, environment, tables)
+	return err
+}
+
+func (s *SQLite) UnrecordSeed(ctx context.Context, version string) error {
+	query := `DELETE FROM schema_seeds WHERE version = ?`
+	_, err := s.Exec(ctx, query, version)
+	return err
+}
+
+func (s *SQLite) UnrecordAllSeeds(ctx context.Context) error {
+	query := `DELETE FROM schema_seeds`
+	_, err := s.Exec(ctx, query)
+	return err
+}
+
+func (s *SQLite) GetTruncateSQL(tableName string) string {
+	return s.GetDeleteFromSQL(tableName)
+}

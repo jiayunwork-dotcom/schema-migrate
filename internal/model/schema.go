@@ -146,6 +146,28 @@ type TimestampConflict struct {
 	Message             string
 }
 
+type Seed struct {
+	Version     string
+	Name        string
+	Environment string
+	SQL         string
+	Path        string
+	Checksum    string
+	AppliedAt   *time.Time
+	IsApplied   bool
+	Order       int
+	Tables      []string
+}
+
+type SeedRecord struct {
+	Version    string    `db:"version"`
+	Name       string    `db:"name"`
+	Checksum   string    `db:"checksum"`
+	AppliedAt  time.Time `db:"applied_at"`
+	Environment string   `db:"environment"`
+	Tables     string    `db:"tables"`
+}
+
 type Config struct {
 	Database struct {
 		Type     DBType `yaml:"type"`
@@ -160,11 +182,15 @@ type Config struct {
 	Migrations struct {
 		Dir string `yaml:"dir"`
 	} `yaml:"migrations"`
+	Seeds struct {
+		Dir        string `yaml:"dir"`
+		DefaultEnv string `yaml:"default_env"`
+	} `yaml:"seeds"`
 	Schema struct {
 		FilePath string `yaml:"file"`
 	} `yaml:"schema"`
 	Concurrency struct {
-		LockTimeout  int `yaml:"lock_timeout_seconds"`
+		LockTimeout   int `yaml:"lock_timeout_seconds"`
 		RetryInterval int `yaml:"retry_interval_ms"`
 	} `yaml:"concurrency"`
 }

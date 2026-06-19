@@ -326,6 +326,37 @@ func (f *Formatter) PrintExecutionResult(mig model.Migration, direction string, 
 	}
 }
 
+func (f *Formatter) PrintSeedExecutionResult(seed model.Seed, operation string, duration time.Duration, err error) {
+	if f.jsonOutput {
+		result := map[string]interface{}{
+			"version":     seed.Version,
+			"name":        seed.Name,
+			"environment": seed.Environment,
+			"operation":   operation,
+			"duration":    duration.Milliseconds(),
+			"success":     err == nil,
+		}
+		if err != nil {
+			result["error"] = err.Error()
+		}
+		f.printJSON(result)
+		return
+	}
+
+	envLabel := ""
+	if seed.Environment != "" {
+		envLabel = fmt.Sprintf(" [%s]", seed.Environment)
+	}
+
+	if err != nil {
+		color.New(color.FgRed).Fprintf(f.writer, "  ✗ %s %s: %s (%.2fs)\n",
+			strings.ToUpper(operation), seed.Version, err.Error(), duration.Seconds())
+	} else {
+		color.New(color.FgGreen).Fprintf(f.writer, "  ✓ %s %s_%s%s (%.2fs)\n",
+			strings.ToUpper(operation), seed.Version, seed.Name, envLabel, duration.Seconds())
+	}
+}
+
 func (f *Formatter) PrintDryRunSQL(sql string) {
 	if f.jsonOutput {
 		f.printJSON(map[string]string{"sql": sql})

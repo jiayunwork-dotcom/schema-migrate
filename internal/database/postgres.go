@@ -555,3 +555,60 @@ func (p *PostgreSQL) GetDropCheckConstraintSQL(tableName string, cc model.CheckC
 func (p *PostgreSQL) GetDropTableSQL(tableName string) string {
 	return fmt.Sprintf("DROP TABLE %s;", p.QuoteIdentifier(tableName))
 }
+
+func (p *PostgreSQL) EnsureSeedsTable(ctx context.Context) error {
+	createTableSQL := `
+		CREATE TABLE IF NOT EXISTS schema_seeds (
+			version VARCHAR(255) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			checksum VARCHAR(64) NOT NULL,
+			applied_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+			environment VARCHAR(50) NOT NULL DEFAULT '',
+			tables TEXT NOT NULL DEFAULT ''
+		);
+		CREATE INDEX IF NOT EXISTS idx_schema_seeds_applied_at ON schema_seeds(applied_at);
+		CREATE INDEX IF NOT EXISTS idx_schema_seeds_environment ON schema_seeds(environment);
+	`
+	_, err := p.Exec(ctx, createTableSQL)
+	return err
+}
+
+func (p *PostgreSQL) GetAppliedSeeds(ctx context.Context) ([]model.SeedRecord, error) {
+	query := `SELECT version, name, checksum, applied_at, environment, tables FROM schema_seeds ORDER BY version ASC`
+	rows, err := p.Query(ctx, query)
+	if err != nil {
+		if strings.Contains(err.Error(), "relation \"schema_seeds\" does not exist") {
+			return []model.SeedRecord{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []model.SeedRecord
+	for rows.Next() {
+		var r model.SeedRecord
+		if err := rows.Scan(&r.Version, &r.Name, &r.Checksum, &r.AppliedAt, &r.Environment, &r.Tables); err != nil {
+			return nil, err
+		}
+		records = append(records, r)
+	}
+	return records, rows.Err()
+}
+
+func (p *PostgreSQL) RecordSeed(ctx context.Context, version, name, checksum, environment, tables string) error {
+	query := `INSERT INTO schema_seeds (version, name, checksum, applied_at, environment, tables) VALUES ($1, $2, $3, NOW(), $4, $5)`
+	_, err := p.Exec(ctx, query, version, name, checksum, environment, tables)
+	return err
+}
+
+func (p *PostgreSQL) UnrecordSeed(ctx context.Context, version string) error {
+	query := `DELETE FROM schema_seeds WHERE version = $1`
+	_, err := p.Exec(ctx, query, version)
+	return err
+}
+
+func (p *PostgreSQL) UnrecordAllSeeds(ctx context.Context) error {
+	query := `DELETE FROM schema_seeds`
+	_, err := p.Exec(ctx, query)
+	return err
+}

@@ -40,6 +40,8 @@ func expandEnvVariables(cfg *model.Config) {
 	cfg.Database.DBName = replaceEnv(cfg.Database.DBName)
 	cfg.Database.DSN = replaceEnv(cfg.Database.DSN)
 	cfg.Migrations.Dir = replaceEnv(cfg.Migrations.Dir)
+	cfg.Seeds.Dir = replaceEnv(cfg.Seeds.Dir)
+	cfg.Seeds.DefaultEnv = replaceEnv(cfg.Seeds.DefaultEnv)
 	cfg.Schema.FilePath = replaceEnv(cfg.Schema.FilePath)
 }
 
@@ -72,6 +74,12 @@ func setDefaults(cfg *model.Config) {
 	}
 	if cfg.Migrations.Dir == "" {
 		cfg.Migrations.Dir = "./migrations"
+	}
+	if cfg.Seeds.Dir == "" {
+		cfg.Seeds.Dir = "./seeds"
+	}
+	if cfg.Seeds.DefaultEnv == "" {
+		cfg.Seeds.DefaultEnv = "development"
 	}
 	if cfg.Schema.FilePath == "" {
 		cfg.Schema.FilePath = "./schemas/schema.yaml"

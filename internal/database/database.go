@@ -28,6 +28,14 @@ type Database interface {
 	RecordMigration(ctx context.Context, version, name, checksum string, executionTimeMs int64) error
 	UnrecordMigration(ctx context.Context, version string) error
 
+	EnsureSeedsTable(ctx context.Context) error
+	GetAppliedSeeds(ctx context.Context) ([]model.SeedRecord, error)
+	RecordSeed(ctx context.Context, version, name, checksum, environment, tables string) error
+	UnrecordSeed(ctx context.Context, version string) error
+	UnrecordAllSeeds(ctx context.Context) error
+	GetTruncateSQL(tableName string) string
+	GetDeleteFromSQL(tableName string) string
+
 	GetCurrentSchema(ctx context.Context) (*model.Schema, error)
 	EstimateRowCount(ctx context.Context, tableName string) (int64, error)
 
@@ -130,6 +138,14 @@ func (b *BaseDatabase) EstimateRowCount(ctx context.Context, tableName string) (
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", quotedTable)
 	err := b.QueryRow(ctx, query).Scan(&count)
 	return count, err
+}
+
+func (b *BaseDatabase) GetTruncateSQL(tableName string) string {
+	return fmt.Sprintf("TRUNCATE TABLE %s;", b.QuoteIdentifier(tableName))
+}
+
+func (b *BaseDatabase) GetDeleteFromSQL(tableName string) string {
+	return fmt.Sprintf("DELETE FROM %s;", b.QuoteIdentifier(tableName))
 }
 
 func (b *BaseDatabase) getColumnDefinition(col model.Column, getTypeFn func(model.Column) string) string {

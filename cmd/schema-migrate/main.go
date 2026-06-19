@@ -18,6 +18,7 @@ import (
 	"github.com/schema-migrate/schema-migrate/internal/model"
 	"github.com/schema-migrate/schema-migrate/internal/output"
 	"github.com/schema-migrate/schema-migrate/internal/security"
+	"github.com/schema-migrate/schema-migrate/internal/seed"
 )
 
 var (
@@ -30,6 +31,7 @@ var (
 	flagDBPassword     string
 	flagDBName         string
 	flagMigrationsDir  string
+	flagSeedsDir       string
 	flagSchemaFile     string
 )
 
@@ -63,6 +65,7 @@ tracking, schema diffing, safety checks, and dependency analysis.`,
 	rootCmd.PersistentFlags().StringVar(&flagDBPassword, "db-password", "", "Database password")
 	rootCmd.PersistentFlags().StringVar(&flagDBName, "db-name", "", "Database name")
 	rootCmd.PersistentFlags().StringVar(&flagMigrationsDir, "migrations-dir", "", "Migrations directory")
+	rootCmd.PersistentFlags().StringVar(&flagSeedsDir, "seeds-dir", "", "Seeds directory")
 	rootCmd.PersistentFlags().StringVar(&flagSchemaFile, "schema-file", "", "Schema definition file path")
 
 	rootCmd.AddCommand(createCmd())
@@ -72,6 +75,7 @@ tracking, schema diffing, safety checks, and dependency analysis.`,
 	rootCmd.AddCommand(redoCmd())
 	rootCmd.AddCommand(diffCmd())
 	rootCmd.AddCommand(initCmd())
+	rootCmd.AddCommand(seedCmd())
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -380,6 +384,10 @@ func initCmd() *cobra.Command {
 migrations:
   dir: ./migrations
 
+seeds:
+  dir: ./seeds
+  default_env: development
+
 schema:
   file: ./schemas/schema.yaml
 
@@ -393,7 +401,7 @@ concurrency:
 				return err
 			}
 
-			dirs := []string{"./migrations", "./schemas"}
+			dirs := []string{"./migrations", "./schemas", "./seeds"}
 			for _, dir := range dirs {
 				if err := os.MkdirAll(dir, 0755); err != nil {
 					formatter.PrintError("Failed to create directory", err)
@@ -432,10 +440,128 @@ concurrency:
 			formatter.PrintSuccess("Initialized schema-migrate project")
 			fmt.Printf("  Config: %s\n", cfgPath)
 			fmt.Println("  Migrations: ./migrations")
+			fmt.Println("  Seeds: ./seeds")
 			fmt.Println("  Schema: ./schemas/schema.yaml")
 			return nil
 		},
 	}
+}
+
+func seedCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "seed",
+		Short: "Manage seed data",
+		Long:  `Create, apply, and reset seed data for testing and initialization.`,
+	}
+
+	cmd.AddCommand(seedCreateCmd())
+	cmd.AddCommand(seedApplyCmd())
+	cmd.AddCommand(seedResetCmd())
+
+	return cmd
+}
+
+func seedCreateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "create [seed-name]",
+		Short: "Create a new seed file",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			formatter := output.NewFormatter(jsonOutput)
+			cfg, err := loadConfig()
+			if err != nil {
+				formatter.PrintError("Failed to load config", err)
+				return err
+			}
+
+			db, err := database.New(config.GetDBType(cfg))
+			if err != nil {
+				formatter.PrintError("Failed to initialize database", err)
+				return err
+			}
+
+			executor := seed.NewExecutor(db, cfg, formatter)
+			return executor.Create(args[0])
+		},
+	}
+}
+
+func seedApplyCmd() *cobra.Command {
+	var env string
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "apply",
+		Short: "Apply all pending seeds",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			formatter := output.NewFormatter(jsonOutput)
+			cfg, err := loadConfig()
+			if err != nil {
+				formatter.PrintError("Failed to load config", err)
+				return err
+			}
+
+			db, err := database.New(config.GetDBType(cfg))
+			if err != nil {
+				formatter.PrintError("Failed to initialize database", err)
+				return err
+			}
+			defer db.Close()
+
+			if err := db.Connect(ctx, config.GetDSN(cfg)); err != nil {
+				formatter.PrintError("Failed to connect to database", err)
+				return err
+			}
+
+			executor := seed.NewExecutor(db, cfg, formatter)
+			return executor.Apply(ctx, env, force)
+		},
+	}
+
+	cmd.Flags().StringVar(&env, "env", "", "Environment tag (development/test/production)")
+	cmd.Flags().BoolVar(&force, "force", false, "Force execution despite checksum warnings")
+
+	return cmd
+}
+
+func seedResetCmd() *cobra.Command {
+	var env string
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "reset",
+		Short: "Reset all seed data and re-apply",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			formatter := output.NewFormatter(jsonOutput)
+			cfg, err := loadConfig()
+			if err != nil {
+				formatter.PrintError("Failed to load config", err)
+				return err
+			}
+
+			db, err := database.New(config.GetDBType(cfg))
+			if err != nil {
+				formatter.PrintError("Failed to initialize database", err)
+				return err
+			}
+			defer db.Close()
+
+			if err := db.Connect(ctx, config.GetDSN(cfg)); err != nil {
+				formatter.PrintError("Failed to connect to database", err)
+				return err
+			}
+
+			executor := seed.NewExecutor(db, cfg, formatter)
+			return executor.Reset(ctx, env, force)
+		},
+	}
+
+	cmd.Flags().StringVar(&env, "env", "", "Environment tag (development/test/production)")
+	cmd.Flags().BoolVar(&force, "force", false, "Force reset without confirmation")
+
+	return cmd
 }
 
 func loadConfig() (*model.Config, error) {
@@ -471,6 +597,9 @@ func applyConfigOverrides(cfg *model.Config) {
 	}
 	if flagMigrationsDir != "" {
 		cfg.Migrations.Dir = flagMigrationsDir
+	}
+	if flagSeedsDir != "" {
+		cfg.Seeds.Dir = flagSeedsDir
 	}
 	if flagSchemaFile != "" {
 		cfg.Schema.FilePath = flagSchemaFile
